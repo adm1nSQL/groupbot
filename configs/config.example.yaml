@@ -1,0 +1,55 @@
+telegram:
+  bot_token: "YOUR_BOT_TOKEN_HERE"
+  admin_ids:
+    - 123456789
+
+  # Bot 介绍卡片与命令菜单（可选，每次启动会同步到 Telegram）
+  profile:
+    # 用户首次打开对话、未发送任何消息时显示的介绍卡片（最长 512 字符）
+    description: |
+      🤖 V2Board 群组管理机器人
+
+      用于自动管理群组成员。请先私聊绑定面板账户，套餐有效后会获得一次性邀请链接。
+
+      点击下方「开始」按钮使用。
+    # Bot 个人资料页的简短介绍（最长 120 字符）
+    short_description: "V2Board 群组管理助手"
+    # 命令菜单，用户点击输入框左下角 / 按钮时显示
+    commands:
+      - command: "start"
+        description: "开始使用"
+      - command: "bind"
+        description: "绑定面板账户"
+      - command: "invite"
+        description: "获取一次性邀请链接"
+      - command: "unbind"
+        description: "解除绑定"
+      - command: "status"
+        description: "查看套餐状态"
+
+groups:
+  - chat_id: -1001234567890
+    # 可选，邀请消息里显示的群名称；留空则读取 Telegram 群标题
+    name: "用户群"
+    database:
+      host: "127.0.0.1"
+      port: 3306
+      user: "bot_readonly"
+      password: "your_password"
+      dbname: "xiaov2board"
+    exempt_users:
+      - 111111111
+      - 222222222
+
+# 群内用户仅发送“官网”时，机器人回复的官网按钮链接；留空则关闭自动回复
+website_url: "https://example.com"
+
+# 一次性邀请链接有效期（秒），默认 1800 = 30 分钟。链接同时只能使用 1 次
+invite_ttl: 1800
+
+# 定时巡检间隔（秒），检查已验证用户套餐是否过期
+check_interval: 300
+
+# 每个群已验证用户的内存缓存上限，命中即跳过 DB 查询
+# 群活跃成员数较多时可调大；默认 5000，对绝大多数群足够
+cache_size: 5000
