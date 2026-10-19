@@ -225,7 +225,7 @@ v2board-tg-bot/
 go build -o v2board-tg-bot ./cmd/bot
 ```
 
-GitHub Actions 打包：推送到 `master`/`main` 会自动运行，或在仓库 **Actions → Build and Release → Run workflow** 手动触发。运行完成后，在该次运行的 **Artifacts** 中下载三个平台的程序。仅当推送 `v*` 标签（如 `v1.0.0`）时，才会额外创建 GitHub Release；普通分支推送和手动运行不会创建 Release。测试或构建失败时不会发布。
+GitHub Actions 打包：推送到 `master`/`main` 会自动运行，或在仓库 **Actions → Build and Release → Run workflow** 手动触发。测试与构建成功后自动创建 GitHub Release，并上传三个平台的程序和示例配置；普通运行使用自动标签 `v0.0.<运行编号>`，推送 `v*` 标签（如 `v1.0.0`）时使用指定版本号。构建文件也可从该次运行的 **Artifacts** 下载。测试或构建失败时不会发布。工作流已声明 `contents: write`；如果组织策略限制 `GITHUB_TOKEN` 的写入权限，仍需由仓库管理员调整策略。失败时请查看 Actions 运行日志。
 
 ## 技术栈
 
