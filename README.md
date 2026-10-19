@@ -225,6 +225,8 @@ v2board-tg-bot/
 go build -o v2board-tg-bot ./cmd/bot
 ```
 
+GitHub Actions 打包：推送到 `master`/`main` 会自动运行，或在仓库 **Actions → Build and Release → Run workflow** 手动触发。运行完成后，在该次运行的 **Artifacts** 中下载三个平台的程序。仅当推送 `v*` 标签（如 `v1.0.0`）时，才会额外创建 GitHub Release；普通分支推送和手动运行不会创建 Release。测试或构建失败时不会发布。
+
 ## 技术栈
 
 - Go 1.23+
