@@ -11,7 +11,7 @@ telegram:
 
       点击下方「开始」按钮使用。
     # Bot 个人资料页的简短介绍（最长 120 字符）
-    short_description: "V2Board 群组管理助手"
+    short_description: "群组管理助手"
     # 命令菜单，用户点击输入框左下角 / 按钮时显示
     commands:
       - command: "start"
