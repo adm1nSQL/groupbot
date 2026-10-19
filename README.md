@@ -175,9 +175,9 @@ chmod +x v2board-tg-bot
 
 在宝塔面板安装 Supervisor 管理器，添加守护进程：
 
-- 名称：`tg-bot`
-- 运行目录：`/opt/tg-bot`
-- 启动命令：`/opt/tg-bot/v2board-tg-bot -config /opt/tg-bot/config.yaml`
+- 名称：`groupbot`
+- 运行目录：`/root/groupbot`
+- 启动命令：`/root/groupbot/v2board-tg-bot -config /root/groupbot/config.yaml`
 
 ## 配置说明
 
