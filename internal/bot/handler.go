@@ -32,6 +32,8 @@ type Handler struct {
 	issuedLinks map[int64]map[int64]string
 	// joinSeen 防止 OnUserJoined 与 chat_member 对同一次入群重复处理
 	joinSeen map[string]time.Time
+	// unauthorizedChats 防止不同更新对同一次非法加群重复退出和通知
+	unauthorizedChats map[int64]time.Time
 
 	// verifyCache: chatID -> LRU(userID -> struct{})
 	// 已通过验证的用户白名单缓存，避免每条群消息都查 DB
@@ -58,9 +60,10 @@ func NewHandler(b *tele.Bot, cfg *config.Config, dbClients map[int64]*db.Client,
 		dbClients:   dbClients,
 		groups:      groups,
 		bindings:    bindings,
-		issuedLinks: make(map[int64]map[int64]string),
-		joinSeen:    make(map[string]time.Time),
-		verifyCache: verifyCache,
+		issuedLinks:       make(map[int64]map[int64]string),
+		joinSeen:          make(map[string]time.Time),
+		unauthorizedChats: make(map[int64]time.Time),
+		verifyCache:       verifyCache,
 	}
 }
 
@@ -74,6 +77,8 @@ func (h *Handler) Register() {
 	// 全局中间件：未绑定或套餐失效的成员发言时移出群组
 	h.bot.Use(h.groupVerifyMiddleware())
 
+	h.bot.Handle(tele.OnAddedToGroup, h.onAddedToGroup)
+	h.bot.Handle(tele.OnMyChatMember, h.onMyChatMemberUpdate)
 	h.bot.Handle(tele.OnUserJoined, h.onUserJoined)
 	h.bot.Handle(tele.OnChatMember, h.onChatMemberUpdate)
 	h.bot.Handle("/start", h.onStart)
@@ -98,6 +103,71 @@ func (h *Handler) Register() {
 		tele.OnDice, tele.OnPoll, tele.OnMedia,
 	} {
 		h.bot.Handle(ev, noop)
+	}
+}
+
+// onAddedToGroup 处理机器人被拉入群组的服务消息。
+func (h *Handler) onAddedToGroup(c tele.Context) error {
+	h.checkBotGroup(c.Chat(), c.Sender())
+	return nil
+}
+
+// onMyChatMemberUpdate 处理机器人加入或重新加入群组的成员状态更新。
+func (h *Handler) onMyChatMemberUpdate(c tele.Context) error {
+	cm := c.Update().MyChatMember
+	if cm == nil || cm.Chat == nil || cm.NewChatMember == nil || cm.OldChatMember == nil {
+		return nil
+	}
+	oldRole, newRole := cm.OldChatMember.Role, cm.NewChatMember.Role
+	if (oldRole == tele.Left || oldRole == tele.Kicked) &&
+		(newRole == tele.Member || newRole == tele.Administrator || newRole == tele.Creator) {
+		h.checkBotGroup(cm.Chat, cm.Sender)
+	}
+	return nil
+}
+
+// checkBotGroup 只接受配置中的管理员邀请；其他情况通知管理员并退出。
+func (h *Handler) checkBotGroup(chat *tele.Chat, inviter *tele.User) {
+	if chat == nil || (chat.Type != tele.ChatGroup && chat.Type != tele.ChatSuperGroup) {
+		return
+	}
+	if inviter != nil && h.config.IsAdmin(inviter.ID) {
+		return
+	}
+
+	h.mu.Lock()
+	for id, last := range h.unauthorizedChats {
+		if time.Since(last) > time.Minute {
+			delete(h.unauthorizedChats, id)
+		}
+	}
+	if last, ok := h.unauthorizedChats[chat.ID]; ok && time.Since(last) < 2*time.Second {
+		h.mu.Unlock()
+		return
+	}
+	h.unauthorizedChats[chat.ID] = time.Now()
+	h.mu.Unlock()
+
+	inviterInfo := "未知（无法确认邀请人身份）"
+	if inviter != nil {
+		inviterInfo = fmt.Sprintf("%s（ID: %d，用户名: @%s）", displayName(inviter), inviter.ID, inviter.Username)
+	}
+	leaveResult := "已退出群组"
+	if err := h.bot.Leave(chat); err != nil {
+		leaveResult = fmt.Sprintf("退出失败：%v（请检查机器人权限或手动移除）", err)
+		slog.Error("退出未授权群组失败", "chat_id", chat.ID, "error", err)
+		h.mu.Lock()
+		delete(h.unauthorizedChats, chat.ID)
+		h.mu.Unlock()
+	} else {
+		slog.Info("已退出未授权群组", "chat_id", chat.ID, "inviter", inviterInfo)
+	}
+	text := fmt.Sprintf("⚠️ 机器人被加入未授权群组\n群名称：%s\n群 ID：%d\n群用户名：@%s\n群类型：%s\n邀请人：%s\n是否在配置群组中：%t\n处理结果：%s",
+		chat.Title, chat.ID, chat.Username, chat.Type, inviterInfo, h.groups[chat.ID] != nil, leaveResult)
+	for _, adminID := range h.config.Telegram.AdminIDs {
+		if _, err := h.bot.Send(&tele.User{ID: adminID}, text); err != nil {
+			slog.Warn("通知管理员非法加群失败", "admin_id", adminID, "chat_id", chat.ID, "error", err)
+		}
 	}
 }
 
@@ -160,6 +230,10 @@ func (h *Handler) isCachedVerified(chatID, userID int64) bool {
 func (h *Handler) groupVerifyMiddleware() tele.MiddlewareFunc {
 	return func(next tele.HandlerFunc) tele.HandlerFunc {
 		return func(c tele.Context) error {
+			// 加群服务事件必须先交给加群权限检查，不能按普通发言校验邀请人。
+			if c.Update().MyChatMember != nil || c.ChatMember() != nil {
+				return next(c)
+			}
 			chat := c.Chat()
 			if chat == nil || (chat.Type != tele.ChatGroup && chat.Type != tele.ChatSuperGroup) {
 				return next(c)
@@ -174,10 +248,10 @@ func (h *Handler) groupVerifyMiddleware() tele.MiddlewareFunc {
 			}
 			msg := c.Message()
 			// service messages（加群/退群/置顶等）不走验证逻辑
-			if msg != nil && (msg.UserJoined != nil || msg.UserLeft != nil ||
+			if msg != nil && (msg.UserJoined != nil || len(msg.UsersJoined) > 0 || msg.UserLeft != nil ||
 				msg.NewGroupTitle != "" || msg.NewGroupPhoto != nil ||
 				msg.GroupPhotoDeleted || msg.PinnedMessage != nil ||
-				msg.GroupCreated || msg.MigrateTo != 0 || msg.MigrateFrom != 0) {
+				msg.GroupCreated || msg.SuperGroupCreated || msg.MigrateTo != 0 || msg.MigrateFrom != 0) {
 				return next(c)
 			}
 
