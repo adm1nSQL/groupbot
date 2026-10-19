@@ -1,0 +1,10 @@
+/v2board-tg-bot
+/v2board-tg-bot.exe
+/v2board-tg-bot-linux-amd64
+/v2board-tg-bot-linux-arm64
+/v2board-tg-bot-windows-amd64.exe
+/bindings.json
+/bindings.json.imported
+/config.yaml
+/dist/
+/.git-commit-msg.tmp
