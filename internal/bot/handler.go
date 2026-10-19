@@ -110,7 +110,7 @@ func (h *Handler) onGroupText(c tele.Context) error {
 	}
 	markup := &tele.ReplyMarkup{}
 	markup.Inline(markup.Row(markup.URL("官网", h.config.WebsiteURL)))
-	return c.Send("点击下方按钮访问官网：", markup)
+	return c.Reply("点击下方按钮访问官网：", markup)
 }
 
 // isGroupChat 判断当前是否在群组中
@@ -681,24 +681,33 @@ func (h *Handler) onStatus(c tele.Context) error {
 	}
 
 	if len(results) == 0 {
-		return c.Send("未找到您的账户信息，请先使用 `/bind 邮箱 密码` 绑定。", tele.ModeMarkdown)
+		text := "未找到您的账户信息，请先使用 `/bind 邮箱 密码` 绑定。"
+		if inGroup {
+			return h.replyGroupStatus(c, text)
+		}
+		return c.Send(text, tele.ModeMarkdown)
 	}
 
 	text := "━━━━━ 📊 套餐状态 ━━━━━\n\n" + strings.Join(results, "\n\n━━━━━━━━━━━━━━━━━\n\n")
-
 	if inGroup {
-		// 群内：删除用户的命令消息，回复 30 秒后自动删除
-		_ = h.bot.Delete(c.Message())
-		reply, _ := h.bot.Send(c.Chat(), text, tele.ModeMarkdown)
-		if reply != nil {
-			go func() {
-				time.Sleep(30 * time.Second)
-				_ = h.bot.Delete(reply)
-			}()
-		}
-		return nil
+		return h.replyGroupStatus(c, text)
 	}
 	return c.Send(text, tele.ModeMarkdown)
+}
+
+// replyGroupStatus 引用发送者的命令消息；展示 30 秒后清理回复和命令。
+func (h *Handler) replyGroupStatus(c tele.Context, text string) error {
+	reply, err := c.Reply(text, tele.ModeMarkdown)
+	if err != nil {
+		return err
+	}
+	command := c.Message()
+	go func() {
+		time.Sleep(30 * time.Second)
+		_ = h.bot.Delete(reply)
+		_ = h.bot.Delete(command)
+	}()
+	return nil
 }
 
 // onCheck 管理员手动触发巡检
