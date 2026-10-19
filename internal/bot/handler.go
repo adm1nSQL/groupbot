@@ -655,10 +655,22 @@ func (h *Handler) onStatus(c tele.Context) error {
 		}
 		return nil
 	}
-	userID := sender.ID
-	b, hasBind := h.bindings.Get(userID)
-
 	inGroup := isGroupChat(c)
+	userID := sender.ID
+	if inGroup && c.Message() != nil && c.Message().ReplyTo != nil {
+		target := c.Message().ReplyTo.Sender
+		if !h.config.IsAdmin(sender.ID) {
+			if target == nil || target.ID != sender.ID {
+				// 普通用户回复他人消息时静默删除指令，不执行查询。
+				_ = h.bot.Delete(c.Message())
+				return nil
+			}
+		} else if target != nil && !target.IsBot {
+			// 管理员回复他人消息时查询被回复的用户；无发送者时仍查询自己。
+			userID = target.ID
+		}
+	}
+	b, hasBind := h.bindings.Get(userID)
 
 	var results []string
 	for chatID, client := range h.dbClients {
@@ -683,31 +695,16 @@ func (h *Handler) onStatus(c tele.Context) error {
 	if len(results) == 0 {
 		text := "未找到您的账户信息，请先使用 `/bind 邮箱 密码` 绑定。"
 		if inGroup {
-			return h.replyGroupStatus(c, text)
+			return c.Reply(text, tele.ModeMarkdown)
 		}
 		return c.Send(text, tele.ModeMarkdown)
 	}
 
 	text := "━━━━━ 📊 套餐状态 ━━━━━\n\n" + strings.Join(results, "\n\n━━━━━━━━━━━━━━━━━\n\n")
 	if inGroup {
-		return h.replyGroupStatus(c, text)
+		return c.Reply(text, tele.ModeMarkdown)
 	}
 	return c.Send(text, tele.ModeMarkdown)
-}
-
-// replyGroupStatus 引用发送者的命令消息；展示 30 秒后清理回复和命令。
-func (h *Handler) replyGroupStatus(c tele.Context, text string) error {
-	reply, err := c.Reply(text, tele.ModeMarkdown)
-	if err != nil {
-		return err
-	}
-	command := c.Message()
-	go func() {
-		time.Sleep(30 * time.Second)
-		_ = h.bot.Delete(reply)
-		_ = h.bot.Delete(command)
-	}()
-	return nil
 }
 
 // onCheck 管理员手动触发巡检
